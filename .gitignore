@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.env
+
+# Node
+node_modules/
+dist/
+build/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Logs & temp
+*.log
+.tmp/
+tmp/
+
+# Lattice runtime lock files (transient mutexes — not coordination state)
+.lattice/locks/
+
+# Secrets
+*credentials*.txt
+*secret*.txt
