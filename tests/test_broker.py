@@ -58,8 +58,10 @@ def test_deny_unknown_or_disabled_tool(session: Session, offline_settings: objec
     agent = seed_defaults(session)
     # registry-level "disabled" (step 1)
     disabled = {
-        "x": ToolSpec("x", KnowledgeBaseSearchArgs, lambda a: {}, "read_only", "kb", False,
-                      enabled=False)
+        "x": ToolSpec(
+            name="x", args_model=KnowledgeBaseSearchArgs, fn=lambda a: {}, kind="read_only",
+            access_scope="kb", egress_checked=False, enabled=False,
+        )
     }
     verdict = broker(session, agent.id, "x", {"query": "q"}, _ctx(agent.id), registry=disabled)
     assert isinstance(verdict, Denied)
@@ -87,8 +89,10 @@ def test_deny_write_tool_kind(session: Session, offline_settings: object) -> Non
     session.add(AgentTool(agent_id=agent.id, tool_id=write_tool.id))
     session.commit()
     registry = {
-        "delete_role": ToolSpec("delete_role", KnowledgeBaseSearchArgs, lambda a: {}, "write",
-                                "sap", False)
+        "delete_role": ToolSpec(
+            name="delete_role", args_model=KnowledgeBaseSearchArgs, fn=lambda a: {}, kind="write",
+            access_scope="sap", egress_checked=False,
+        )
     }
     verdict = broker(
         session, agent.id, "delete_role", {"query": "q"}, _ctx(agent.id, scopes=["sap"]),

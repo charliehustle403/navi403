@@ -2,3 +2,4 @@
 {"actor":"agent:claude-opus-4","data":{"from":"backlog","to":"in_planning"},"id":"ev_01KTJ1WWMG8W7HTGBQDWKSY4D5","schema_version":1,"task_id":"task_01KTJ1WWDWMB5M651FFP337PR1","ts":"2026-06-07T22:05:19Z","type":"status_changed"}
 {"actor":"agent:claude-opus-4","data":{"from":"in_planning","to":"planned"},"id":"ev_01KTJ1YMHF5YCMY34T0CA19FGC","schema_version":1,"task_id":"task_01KTJ1WWDWMB5M651FFP337PR1","ts":"2026-06-07T22:06:16Z","type":"status_changed"}
 {"actor":"agent:claude-opus-4","data":{"from":"planned","to":"in_progress"},"id":"ev_01KTJ1YMQTZE6XQ2BFJCYS7XF3","schema_version":1,"task_id":"task_01KTJ1WWDWMB5M651FFP337PR1","ts":"2026-06-07T22:06:16Z","type":"status_changed"}
+{"actor":"agent:claude-opus-4","data":{"from":"in_progress","to":"review"},"id":"ev_01KTJ2A5GVDCJT7Y8BGNQP4JHA","schema_version":1,"task_id":"task_01KTJ1WWDWMB5M651FFP337PR1","ts":"2026-06-07T22:12:34Z","type":"status_changed"}

@@ -22,6 +22,9 @@ class RunContext(BaseModel):
     run_id: str
     agent_id: str
     route: str | None = None
+    # NB: defaults to 0.0, which makes the broker's budget check (cost_so_far_usd >= max) deny
+    # EVERY tool call. The M3 loop MUST set a real per-run budget from the model_profile, or no
+    # tool ever runs. Safe-by-default (deny), but set it explicitly.
     max_cost_per_run: float = 0.0
     cost_so_far_usd: float = 0.0
     scopes: list[str] = Field(default_factory=list)
