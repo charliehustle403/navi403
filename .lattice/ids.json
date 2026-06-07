@@ -1,5 +1,9 @@
 {
-  "map": {},
-  "next_seqs": {},
+  "map": {
+    "NAVI-1": "task_01KTHTQKDHR5H54JW5JGCSW5DT"
+  },
+  "next_seqs": {
+    "NAVI": 2
+  },
   "schema_version": 2
 }
