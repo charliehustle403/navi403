@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     # compose port mapping doesn't serve.
     database_url: str = "postgresql+psycopg://navi:navi@127.0.0.1:5432/navi"
 
+    # web_search tool: optional. Absent -> the tool returns "search unavailable" (never crashes).
+    search_api_key: str | None = None
+    # knowledge_base_search tool: directory of markdown notes to keyword-search.
+    kb_dir: str = "docs"
+
 
 @lru_cache
 def get_settings() -> Settings:
