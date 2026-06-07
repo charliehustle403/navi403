@@ -1,27 +1,51 @@
-# <PROJECT NAME>
+# Navi
 
-> One-line description of what this project does.  <!-- TODO -->
+> A read-only **Technical Workbench** AI backend: a FastAPI + Postgres service that routes a
+> request and runs a **manual Anthropic tool loop** to answer directly, do grounded web research,
+> or run a structured **SAP S/4HANA role-design review**. Every tool call passes through a
+> deterministic **tool broker** (the security boundary); every run is **traced**. No write or
+> autonomous actions — read-only by design. Inspired by Jarvis from Iron Man.
 
 ## Stack
-<!-- TODO: languages, frameworks, key libraries, runtime versions -->
--
+- **Python 3.12**, **FastAPI** + **Uvicorn** (REST API) and a thin **CLI** client.
+- **Postgres 16** via **SQLModel** (models) + **Alembic** (migrations).
+- **`anthropic` Python SDK — Client SDK with a manual tool loop** (never the Agent SDK, never
+  server-side tools — they bypass the broker).
+- **Pydantic v2** for all contracts/schemas; **httpx** for the web-search tool's HTTP calls.
+- **pytest** (eval suite), **ruff** (lint), **mypy** (types). Toolchain: **uv**.
+- Config via `.env`: `ANTHROPIC_API_KEY`, `DATABASE_URL`, plus a `model_profiles` config file
+  (model IDs are config, not code).
 
 ## Commands
-<!-- TODO: fill in the real commands -->
-- Install deps:
-- Run / dev server:
-- Test:
-- Lint / typecheck:
-- Build:
+> ⚠️ **Not scaffolded yet** — only `core_documents/` exists so far. These are the *intended*
+> commands per the build spec (§11); they become real as the skeleton lands. Update when true.
+- Install deps: `uv sync` *(once `pyproject.toml` exists)*
+- Run / dev server: `uv run uvicorn navi.api:app --reload`
+- Test: `uv run pytest`
+- Lint / typecheck: `uv run ruff check .` and `uv run mypy .`
+- DB migrations: `uv run alembic upgrade head`
 
 ## Project structure
-<!-- TODO: short map of the important directories once they exist -->
--
+> ⚠️ **Planned, not yet created.** Target module map from build spec §3/§6 — keep these as
+> separate, typed, swappable ports (do not couple them):
+- `router` — classifies a request (answer_inline / sap_review / research / clarify / refuse).
+- `broker` — the security boundary; the **only** code path that executes a tool.
+- `tools/` — read-only, in-process tools (`knowledge_base_search`, `web_search`).
+- `memory` — provenance-gated memory service.
+- `trace` — writes `runs` + `trace_events` to Postgres.
+- model client — `model_profiles` wrapper around the Anthropic Client SDK.
+- `api` (FastAPI: `POST /ask`, `GET /runs/{id}`, `GET /health`) + `cli` (thin client).
+- `core_documents/` — build spec (*what*) and master design doc (*why*). **Source of truth.**
 
 ## Conventions
-<!-- TODO: code style, naming, commit-message format. Branch strategy = dev/main transport (see Git workflow). -->
-- Commits: small, reviewable, clear messages.
+- Commits: small, reviewable, clear messages. Run `ruff check` + `mypy` before each commit.
 - Branching: SAP-style dev→main transport (see Git workflow section).
+- **Type everything**; Pydantic v2 for all contracts.
+- **Model choices live in `model_profiles` config, never hard-coded** in logic.
+- **Every run writes a `runs` row + `trace_events`**; hash payloads — never store raw sensitive
+  content.
+- Ambiguous requirement → pick the simpler/safer option and leave a `# TODO(scope):` comment
+  rather than expanding scope.
 
 ## How I work in this repo (multi-surface workflow)
 
@@ -53,7 +77,7 @@ say otherwise:
 - The live agent session is shared across surfaces via Remote Control, but the
   *code* stays in sync through git. Only one agent should be actively editing a
   given working tree at a time; use a separate worktree for parallel work.
-- Remote: `<git remote URL>`  <!-- TODO: set after creating the repo -->
+- Remote: `git@github.com:charliehustle403/navi403.git`
 - Branching: **SAP-style transport workflow** — develop on `dev`, test there, then
   merge `dev → main` to promote to production. `main` is the stable/prod branch;
   never commit experimental work directly to `main`. `main` should be branch-protected
