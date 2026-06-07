@@ -177,8 +177,15 @@ if ($originUrl -and ($originUrl -match 'github\.com[:/]([^/]+)/(.+?)(?:\.git)?$'
         $tmp = New-TemporaryFile
         try {
             Set-Content -Path $tmp -Value $protection -Encoding utf8
-            gh api -X PUT "repos/$owner/$repo/branches/main/protection" --input $tmp | Out-Null
-            Ok "main protected: PRs only, force-push + deletion blocked, admins enforced."
+            # gh is a native command: a non-zero exit (e.g. HTTP 403 on a private repo without
+            # GitHub Pro) does NOT throw, so we must inspect $LASTEXITCODE rather than rely on catch.
+            $ghOut = gh api -X PUT "repos/$owner/$repo/branches/main/protection" --input $tmp 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Ok "main protected: PRs only, force-push + deletion blocked, admins enforced."
+            } else {
+                Warn "Branch protection NOT applied (gh exit $LASTEXITCODE): $(($ghOut -join ' ').Trim())"
+                Warn "Private repos need GitHub Pro/Team, or make the repo public. Or apply manually in repo Settings -> Branches."
+            }
         } catch {
             Warn "Branch protection failed ($($_.Exception.Message)). Apply manually in repo Settings -> Branches."
         } finally {

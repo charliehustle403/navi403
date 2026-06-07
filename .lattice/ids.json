@@ -1,0 +1,10 @@
+{
+  "map": {
+    "NAVI-1": "task_01KTHTQKDHR5H54JW5JGCSW5DT",
+    "NAVI-2": "task_01KTHV22QZN99N6P6WZHGNCYAY"
+  },
+  "next_seqs": {
+    "NAVI": 3
+  },
+  "schema_version": 2
+}
