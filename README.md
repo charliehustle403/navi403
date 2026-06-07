@@ -27,6 +27,24 @@ MVP — early development. See `core_documents/` for the build spec and master d
 **Out of scope:** any write/mutating/side-effecting action, autonomous behavior, schedulers,
 frontend, voice, MCP servers, and Anthropic server-side tools (they bypass the broker).
 
+## Development
+
+Requirements: [`uv`](https://docs.astral.sh/uv/), Docker Desktop. Milestone 1 ships the
+skeleton + data layer only (config, the §5 SQLModel schema, the Alembic migration, and a
+DB-checking `/health`).
+
+```bash
+uv sync                              # install deps into .venv
+cp .env.example .env                 # (optional) ANTHROPIC_API_KEY not needed until M3
+docker compose up -d                 # Postgres 16 on 127.0.0.1:5432
+uv run alembic upgrade head          # create the schema
+uv run uvicorn navi.api:app --host 127.0.0.1 --port 8000   # serve (localhost only)
+# -> GET http://127.0.0.1:8000/health  =>  {"status":"ok","db":"ok"}
+```
+
+Checks: `uv run pytest` · `uv run ruff check .` · `uv run mypy`. Tear down Postgres with
+`docker compose down` (add `-v` to drop the data volume).
+
 ## Documentation
 
 - `core_documents/navi_MVP_Build_Spec.md` — what to build

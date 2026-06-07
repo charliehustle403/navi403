@@ -2,10 +2,11 @@
   "map": {
     "NAVI-1": "task_01KTHTQKDHR5H54JW5JGCSW5DT",
     "NAVI-2": "task_01KTHV22QZN99N6P6WZHGNCYAY",
-    "NAVI-3": "task_01KTHY65HWDTVY48BW36JXXEAK"
+    "NAVI-3": "task_01KTHY65HWDTVY48BW36JXXEAK",
+    "NAVI-4": "task_01KTJ00NX63XMMMRJ0T18MM3S7"
   },
   "next_seqs": {
-    "NAVI": 4
+    "NAVI": 5
   },
   "schema_version": 2
 }
