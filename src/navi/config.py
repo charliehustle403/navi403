@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     search_api_key: str | None = None
     # knowledge_base_search tool: directory of markdown notes to keyword-search.
     kb_dir: str = "docs"
+    # model_profiles + pricing config file (spec §6.1). Logic references profile names; the
+    # name->model mapping and prices live in this file.
+    model_profiles_path: str = "model_profiles.json"
 
 
 @lru_cache

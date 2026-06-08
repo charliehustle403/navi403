@@ -7,7 +7,7 @@ Only the contracts needed so far are defined. ``RouteDecision``, ``StructuredRes
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -51,3 +51,31 @@ class ApprovalRequired:
 
 
 BrokerVerdict = Allowed | Denied | ApprovalRequired
+
+
+# --- router + result contracts (spec §7) --------------------------------------------------
+
+Route = Literal["answer_inline", "sap_review", "research", "clarify", "refuse"]
+
+
+class RouteDecision(BaseModel):
+    """The classifier returns only this (spec §6.5). Dispatch policy is code, not the model."""
+
+    route: Route
+    confidence: float
+    risk: Literal["low", "medium", "high"]
+    requires_approval: bool = False
+    reason: str = ""
+
+
+class StructuredResult(BaseModel):
+    """The answer to a request (spec §7). ``truncated`` is set when the run stopped on budget."""
+
+    run_id: str
+    route: str
+    answer: str
+    evidence: list[str] = Field(default_factory=list)  # source paths / urls
+    cost_usd: float = 0.0
+    needs_approval: bool = False
+    truncated: bool = False
+

@@ -31,7 +31,10 @@ from navi.tools import (
     _web_search,
 )
 
-__all__ = ["Allowed", "ApprovalRequired", "BrokerVerdict", "Denied", "RunContext", "broker"]
+__all__ = [
+    "Allowed", "ApprovalRequired", "BrokerVerdict", "Denied", "RunContext",
+    "anthropic_tool_defs", "broker",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +51,7 @@ class ToolSpec:
     kind: str  # read_only | write  (MVP registry holds read_only only)
     access_scope: str
     egress_checked: bool
+    description: str = ""
     enabled: bool = True
 
 
@@ -60,6 +64,8 @@ _REGISTRY: dict[str, ToolSpec] = {
         kind="read_only",
         access_scope="kb",
         egress_checked=False,  # local file read — no outbound channel
+        description="Keyword-search the local SAP knowledge base; returns top matching snippets "
+        "with their source file paths.",
     ),
     "web_search": ToolSpec(
         name="web_search",
@@ -68,6 +74,8 @@ _REGISTRY: dict[str, ToolSpec] = {
         kind="read_only",
         access_scope="web",
         egress_checked=True,  # outbound — the exfiltration backstop applies
+        description="Search the public web for current information; returns title/url/snippet "
+        "results.",
     ),
 }
 
@@ -170,3 +178,21 @@ def broker(
     emit({"event_type": "broker_decision", "tool_name": tool_name, "verdict": "allowed",
           "reason": None})
     return Allowed(result)
+
+
+def anthropic_tool_defs(registry: dict[str, ToolSpec] | None = None) -> list[dict[str, Any]]:
+    """Anthropic tool schemas for the enabled read-only tools, derived from the private registry.
+
+    Lets the loop advertise the available tools to the model. Execution still goes only through
+    ``broker()`` — these are declarations, not callables.
+    """
+    reg = registry if registry is not None else _REGISTRY
+    return [
+        {
+            "name": spec.name,
+            "description": spec.description,
+            "input_schema": spec.args_model.model_json_schema(),
+        }
+        for spec in reg.values()
+        if spec.enabled and spec.kind == "read_only"
+    ]
