@@ -35,3 +35,5 @@ start.bat -> curl /health 200 {status:ok,db:ok} -> stop.bat -> port 8000 free; c
 - No app/source change; files at repo root; committed on dev.
 
 ## Complexity: low-medium (Windows batch correctness)
+
+## Reset 2026-06-08 by agent:claude-opus-4
