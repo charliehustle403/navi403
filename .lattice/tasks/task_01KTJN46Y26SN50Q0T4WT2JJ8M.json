@@ -1,0 +1,32 @@
+{
+  "assigned_to": null,
+  "branch_links": [],
+  "comment_count": 1,
+  "complexity": null,
+  "created_at": "2026-06-08T03:41:22Z",
+  "created_by": "agent:claude-opus-4",
+  "custom_fields": {},
+  "description": null,
+  "done_at": "2026-06-08T03:52:33Z",
+  "evidence_refs": [
+    {
+      "id": "ev_01KTJNRPKVB5HXE2SQXFS2247Y",
+      "role": "review",
+      "source_type": "comment"
+    }
+  ],
+  "id": "task_01KTJN46Y26SN50Q0T4WT2JJ8M",
+  "last_event_id": "ev_01KTJNRPT9M21FWW4WYPXYJYN9",
+  "last_status_changed_at": "2026-06-08T03:52:33Z",
+  "priority": "medium",
+  "relationships_out": [],
+  "reopened_count": 0,
+  "schema_version": 1,
+  "short_id": "NAVI-7",
+  "status": "done",
+  "tags": null,
+  "title": "Milestone 3: model_profiles client + manual tool loop + router + POST /ask",
+  "type": "task",
+  "updated_at": "2026-06-08T03:52:33Z",
+  "urgency": null
+}

@@ -1,0 +1,39 @@
+{
+  "assigned_to": null,
+  "branch_links": [
+    {
+      "branch": "dev",
+      "linked_at": "2026-06-07T21:32:26Z",
+      "linked_by": "agent:claude-opus-4",
+      "repo": null
+    }
+  ],
+  "comment_count": 1,
+  "complexity": null,
+  "created_at": "2026-06-07T21:32:26Z",
+  "created_by": "agent:claude-opus-4",
+  "custom_fields": {},
+  "description": null,
+  "done_at": "2026-06-07T21:52:43Z",
+  "evidence_refs": [
+    {
+      "id": "ev_01KTJ15T29ZTVQBS8BGZPG9BGQ",
+      "role": "review",
+      "source_type": "comment"
+    }
+  ],
+  "id": "task_01KTJ00NX63XMMMRJ0T18MM3S7",
+  "last_event_id": "ev_01KTJ15T8MPQ60EGXPBSHRAR45",
+  "last_status_changed_at": "2026-06-07T21:52:43Z",
+  "priority": "medium",
+  "relationships_out": [],
+  "reopened_count": 0,
+  "schema_version": 1,
+  "short_id": "NAVI-4",
+  "status": "done",
+  "tags": null,
+  "title": "Milestone 1: Skeleton + DB (FastAPI, SQLModel \u00a75 schema, Alembic, /health, Docker Postgres)",
+  "type": "task",
+  "updated_at": "2026-06-07T21:52:43Z",
+  "urgency": null
+}

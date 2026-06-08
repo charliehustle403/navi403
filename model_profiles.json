@@ -1,0 +1,14 @@
+{
+  "_comment": "Model profiles + pricing (build spec §6.1). CONFIG, NOT CODE — expected to drift. Logic references profile NAMES only; the name->model mapping and prices live here. Prices are USD per 1,000,000 tokens and are PLACEHOLDERS — VERIFY against current Anthropic pricing before relying on cost_usd.",
+  "profiles": {
+    "cheap_triage":   { "provider": "anthropic", "model": "claude-haiku-4-5-20251001", "max_cost_per_run": 0.05, "max_tokens": 512 },
+    "daily_driver":   { "provider": "anthropic", "model": "claude-sonnet-4-6",          "max_cost_per_run": 0.50, "max_tokens": 2048 },
+    "deep_reasoning": { "provider": "anthropic", "model": "claude-opus-4-8",            "max_cost_per_run": 3.00, "max_tokens": 4096 },
+    "local_private":  { "provider": "ollama",    "model": "configurable",               "max_cost_per_run": 0.00, "max_tokens": 2048, "no_cloud": true }
+  },
+  "pricing": {
+    "claude-haiku-4-5-20251001": { "input_per_mtok": 1.0,  "output_per_mtok": 5.0 },
+    "claude-sonnet-4-6":         { "input_per_mtok": 3.0,  "output_per_mtok": 15.0 },
+    "claude-opus-4-8":           { "input_per_mtok": 15.0, "output_per_mtok": 75.0 }
+  }
+}
