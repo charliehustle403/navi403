@@ -2,7 +2,8 @@
 
 Every tool call goes through ``broker()``. Budget is **stop-and-report** (spec §6.1): the loop
 checks the per-run budget before each model call and returns a partial result rather than raising.
-Run/trace persistence is deferred to Milestone 5; the SAP review prompt to Milestone 4.
+Each run opens a ``runs`` row and records ``trace_events`` (route / model_call / broker_decision /
+error) via a RunRecorder (Milestone 5).
 """
 
 from __future__ import annotations
@@ -10,7 +11,6 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any
-from uuid import uuid4
 
 from sqlmodel import Session, select
 
@@ -20,6 +20,7 @@ from navi.model_client import Completer, get_profile
 from navi.models import Agent, AgentTool, Tool
 from navi.prompts import GENERAL, RESEARCH, SAP_REVIEW
 from navi.router import dispatch_route, route
+from navi.trace import RunRecorder, close_run, open_run
 
 logger = logging.getLogger(__name__)
 
@@ -79,12 +80,14 @@ def run_loop(
     system: str,
     profile: str,
     user_text: str,
+    recorder: RunRecorder | None = None,
 ) -> StructuredResult:
     """Manual Anthropic tool loop. Each tool_use is brokered; budget hit -> stop-and-report."""
     tools = anthropic_tool_defs()
     messages: list[dict[str, Any]] = [{"role": "user", "content": user_text}]
     evidence: list[str] = []
     last_text = ""
+    broker_tracer = recorder.broker_decision if recorder is not None else None
 
     for _ in range(_MAX_ITERATIONS):
         if ctx.cost_so_far_usd >= ctx.max_cost_per_run:
@@ -93,6 +96,8 @@ def run_loop(
             )
 
         resp = model.complete(profile, messages, tools, system)
+        if recorder is not None:
+            recorder.model_call(resp)
         ctx.cost_so_far_usd += resp.cost_usd
         if resp.text:
             last_text = resp.text
@@ -103,7 +108,7 @@ def run_loop(
         messages.append({"role": "assistant", "content": resp.content})
         tool_results: list[dict[str, Any]] = []
         for tu in resp.tool_uses:
-            verdict = broker(session, ctx.agent_id, tu.name, tu.input, ctx)
+            verdict = broker(session, ctx.agent_id, tu.name, tu.input, ctx, tracer=broker_tracer)
             if isinstance(verdict, Allowed):
                 _collect_evidence(verdict.result, evidence)
                 payload = json.dumps(verdict.result)
@@ -131,28 +136,45 @@ def _clarify_or_refuse(dispatched: str, decision_reason: str) -> str:
 
 
 def handle_request(text: str, *, model: Completer, session: Session) -> StructuredResult:
-    """Route -> dispatch -> run. Builds the RunContext with a real budget from the chosen profile.
+    """Route -> dispatch -> run, persisting a run + trace events. Budget from the chosen profile.
 
-    NB: the routing classifier's (cheap_triage) cost is not folded into ``cost_usd`` here; full
-    cost accounting lands with trace persistence in Milestone 5.
+    The routing classifier's cost is folded into the run total via the recorder (it accumulates
+    cost across the classifier call and every loop call).
     """
     agent_id, scopes = _agent_and_scopes(session)
-    decision = route(model, text)
-    dispatched = dispatch_route(decision)
-    run_id = uuid4().hex
+    run = open_run(session, agent_id)
+    recorder = RunRecorder(session, run.id)
 
-    if dispatched in ("clarify", "refuse"):
-        return StructuredResult(
-            run_id=run_id, route=dispatched, answer=_clarify_or_refuse(dispatched, decision.reason)
+    try:
+        decision = route(model, text, recorder)
+        dispatched = dispatch_route(decision)
+        recorder.route_event(dispatched, decision)
+        run.route = dispatched
+
+        if dispatched in ("clarify", "refuse"):
+            answer = _clarify_or_refuse(dispatched, decision.reason)
+            result = StructuredResult(
+                run_id=run.id, route=dispatched, answer=answer, cost_usd=round(recorder.cost, 6)
+            )
+            close_run(session, run, status="refused" if dispatched == "refuse" else "ok",
+                      cost_usd=recorder.cost)
+            return result
+
+        system, profile = _DISPATCH[dispatched]
+        prof = get_profile(profile)
+        ctx = RunContext(
+            run_id=run.id,
+            agent_id=agent_id,
+            route=dispatched,
+            max_cost_per_run=float(prof["max_cost_per_run"]),  # real budget — not the 0.0 default
+            cost_so_far_usd=recorder.cost,  # carry the classifier cost into the budget + total
+            scopes=scopes,
         )
-
-    system, profile = _DISPATCH[dispatched]
-    prof = get_profile(profile)
-    ctx = RunContext(
-        run_id=run_id,
-        agent_id=agent_id,
-        route=dispatched,
-        max_cost_per_run=float(prof["max_cost_per_run"]),  # real budget — not the 0.0 default
-        scopes=scopes,
-    )
-    return run_loop(model, session, ctx, system, profile, text)
+        result = run_loop(model, session, ctx, system, profile, text, recorder)
+        close_run(session, run, status="truncated" if result.truncated else "ok",
+                  cost_usd=ctx.cost_so_far_usd)
+        return result
+    except Exception as exc:
+        recorder.error(str(exc))
+        close_run(session, run, status="error", cost_usd=recorder.cost)
+        raise
