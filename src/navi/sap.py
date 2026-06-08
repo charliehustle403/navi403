@@ -16,9 +16,17 @@ REQUIRED_SECTIONS: tuple[str, ...] = (
 
 
 def missing_sections(markdown: str) -> list[str]:
-    """Return the required §8 section headers absent from the review output (case-insensitive)."""
-    low = markdown.lower()
-    return [section for section in REQUIRED_SECTIONS if section.lower() not in low]
+    """Return the required §8 section headers absent from the review output.
+
+    A header counts as present only when a *line* starts with it (case-insensitive), so the
+    header strings appearing inline in prose don't produce a false positive.
+    """
+    lines = [line.strip().lower() for line in markdown.splitlines()]
+    return [
+        section
+        for section in REQUIRED_SECTIONS
+        if not any(line.startswith(section.lower()) for line in lines)
+    ]
 
 
 def has_required_sections(markdown: str) -> bool:

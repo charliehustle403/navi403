@@ -30,7 +30,7 @@ _DEFAULT_AGENT_NAME = "navi"
 _DISPATCH: dict[str, tuple[str, str]] = {
     "answer_inline": (GENERAL, "daily_driver"),
     "research": (RESEARCH, "daily_driver"),
-    "sap_review": (SAP_REVIEW, "deep_reasoning"),  # TODO(M4): §8 SAP prompt + markdown findings
+    "sap_review": (SAP_REVIEW, "deep_reasoning"),  # §8 review prompt (NAVI-8)
 }
 
 

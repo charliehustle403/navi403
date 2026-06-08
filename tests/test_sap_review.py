@@ -52,6 +52,13 @@ def test_missing_sections_reported() -> None:
     assert "### Gaps" in missing and "### Quick wins" in missing
 
 
+def test_inline_headers_do_not_falsely_pass() -> None:
+    # all four header strings appear, but only inline in one prose line — not real sections
+    prose = "I considered ### Summary, ### Findings, ### Gaps, and ### Quick wins inline."
+    assert not has_required_sections(prose)
+    assert len(missing_sections(prose)) == 4
+
+
 # --- dispatch uses the §8 prompt on deep_reasoning ----------------------------------------
 
 

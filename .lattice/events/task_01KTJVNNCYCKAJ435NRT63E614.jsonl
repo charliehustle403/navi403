@@ -2,3 +2,4 @@
 {"actor":"agent:claude-opus-4","data":{"from":"backlog","to":"in_planning"},"id":"ev_01KTJVNNM4K9DDR55BHM4TNEKS","schema_version":1,"task_id":"task_01KTJVNNCYCKAJ435NRT63E614","ts":"2026-06-08T05:35:45Z","type":"status_changed"}
 {"actor":"agent:claude-opus-4","data":{"from":"in_planning","to":"planned"},"id":"ev_01KTJVPYEABJQBGFW6XDQRRJMV","schema_version":1,"task_id":"task_01KTJVNNCYCKAJ435NRT63E614","ts":"2026-06-08T05:36:27Z","type":"status_changed"}
 {"actor":"agent:claude-opus-4","data":{"from":"planned","to":"in_progress"},"id":"ev_01KTJVPYMWZMF1WVRQVD17GMJX","schema_version":1,"task_id":"task_01KTJVNNCYCKAJ435NRT63E614","ts":"2026-06-08T05:36:27Z","type":"status_changed"}
+{"actor":"agent:claude-opus-4","data":{"from":"in_progress","to":"review"},"id":"ev_01KTJVW1JM8Z73DD9XK50985Z7","schema_version":1,"task_id":"task_01KTJVNNCYCKAJ435NRT63E614","ts":"2026-06-08T05:39:14Z","type":"status_changed"}
