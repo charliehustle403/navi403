@@ -95,7 +95,7 @@ def test_golden_routes_to_sap_review(
 
 
 def test_goldens_exist() -> None:
-    assert len(_GOLDENS) >= 3, "expected a few SAP golden fixtures"
+    assert len(_GOLDENS) >= 10, "build spec §10 requires >=10 SAP-review goldens"
 
 
 # --- live smoke test (opt-in; real Opus call) ---------------------------------------------
