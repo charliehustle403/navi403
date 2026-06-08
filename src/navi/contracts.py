@@ -79,3 +79,37 @@ class StructuredResult(BaseModel):
     needs_approval: bool = False
     truncated: bool = False
 
+
+class MemoryCandidate(BaseModel):
+    """A proposed memory before the provenance gate (spec §7, §6.7)."""
+
+    source: str
+    source_trust: Literal["trusted", "untrusted"]
+    value: str
+    classification: Literal["preference", "world_fact", "decision", "sensitive"]
+
+
+# --- /runs/{id} trace views (spec §6.8) ---------------------------------------------------
+
+
+class TraceEventView(BaseModel):
+    event_type: str
+    tool_name: str | None = None
+    route: str | None = None
+    verdict: str | None = None
+    tokens_in: int | None = None
+    tokens_out: int | None = None
+    payload_hash: str | None = None
+    created_at: str
+
+
+class RunTrace(BaseModel):
+    run_id: str
+    agent_id: str | None
+    route: str | None
+    status: str
+    cost_usd: float
+    started_at: str
+    ended_at: str | None
+    events: list[TraceEventView] = Field(default_factory=list)
+

@@ -7,15 +7,16 @@ injected as dependencies so tests can override them with a fake model + in-memor
 
 from __future__ import annotations
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
 
 from navi import __version__
-from navi.contracts import StructuredResult
+from navi.contracts import RunTrace, StructuredResult
 from navi.db import check_db, get_session
 from navi.loop import handle_request
 from navi.model_client import Completer, ModelClient
+from navi.trace import get_run_trace
 
 app = FastAPI(title="Navi", version=__version__)
 
@@ -43,3 +44,12 @@ def ask(
 ) -> StructuredResult:
     """Route the request and run the Navi loop; return the structured result."""
     return handle_request(req.text, model=model, session=session)
+
+
+@app.get("/runs/{run_id}")
+def get_run(run_id: str, session: Session = Depends(get_session)) -> RunTrace:
+    """Return the run summary + ordered trace events (build spec §6.8). 404 if unknown."""
+    trace = get_run_trace(session, run_id)
+    if trace is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return trace

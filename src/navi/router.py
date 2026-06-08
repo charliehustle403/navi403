@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from navi.contracts import RouteDecision
 from navi.model_client import Completer
 from navi.prompts import CLASSIFIER
+
+if TYPE_CHECKING:
+    from navi.trace import RunRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +47,14 @@ def _extract_json(text: str) -> dict[str, Any]:
     return parsed
 
 
-def _classify(model: Completer, text: str) -> RouteDecision:
+def _classify(
+    model: Completer, text: str, recorder: RunRecorder | None = None
+) -> RouteDecision:
     """Run the cheap_triage classifier; any failure defaults safely to clarify."""
     try:
         resp = model.complete("cheap_triage", [{"role": "user", "content": text}], None, CLASSIFIER)
+        if recorder is not None:
+            recorder.model_call(resp)  # fold the routing cost into the run
         return RouteDecision(**_extract_json(resp.text))
     except Exception:
         logger.exception("router classification failed; defaulting to clarify")
@@ -56,13 +63,13 @@ def _classify(model: Completer, text: str) -> RouteDecision:
         )
 
 
-def route(model: Completer, text: str) -> RouteDecision:
+def route(model: Completer, text: str, recorder: RunRecorder | None = None) -> RouteDecision:
     """Decide the route: deterministic SAP pre-check first, else the cheap classifier."""
     if _looks_like_sap_review(text):
         return RouteDecision(
             route="sap_review", confidence=0.95, risk="low", reason="deterministic SAP pre-check"
         )
-    return _classify(model, text)
+    return _classify(model, text, recorder)
 
 
 def dispatch_route(decision: RouteDecision) -> str:
