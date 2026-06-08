@@ -1,26 +1,32 @@
 {
   "assigned_to": null,
   "branch_links": [],
-  "comment_count": 0,
+  "comment_count": 1,
   "complexity": null,
   "created_at": "2026-06-08T05:48:03Z",
   "created_by": "agent:claude-opus-4",
   "custom_fields": {},
   "description": null,
-  "done_at": null,
-  "evidence_refs": [],
+  "done_at": "2026-06-08T05:56:42Z",
+  "evidence_refs": [
+    {
+      "id": "ev_01KTJWW0DE5WBCYZY56P2Q2SXE",
+      "role": "review",
+      "source_type": "comment"
+    }
+  ],
   "id": "task_01KTJWC60HPQC1F1M4S2QNR89M",
-  "last_event_id": "ev_01KTJWE1G2M3WNN9F8FTX0BZBD",
-  "last_status_changed_at": "2026-06-08T05:49:04Z",
+  "last_event_id": "ev_01KTJWW0KXAWCBFD7QDSYYXBC9",
+  "last_status_changed_at": "2026-06-08T05:56:42Z",
   "priority": "medium",
   "relationships_out": [],
   "reopened_count": 0,
   "schema_version": 1,
   "short_id": "NAVI-9",
-  "status": "in_progress",
+  "status": "done",
   "tags": null,
   "title": "Milestone 5: provenance memory gate + trace persistence + GET /runs/{id}",
   "type": "task",
-  "updated_at": "2026-06-08T05:49:04Z",
+  "updated_at": "2026-06-08T05:56:42Z",
   "urgency": null
 }
