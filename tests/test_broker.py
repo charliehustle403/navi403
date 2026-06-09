@@ -149,6 +149,48 @@ def test_deny_egress_credential_pattern(session: Session, offline_settings: obje
     assert "egress" in verdict.reason
 
 
+def test_deny_egress_pii_email(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    verdict = broker(
+        session, agent.id, "web_search",
+        {"query": "contact me at jane.doe@example.com about the role"}, _ctx(agent.id),
+    )
+    assert isinstance(verdict, Denied)
+    assert "egress" in verdict.reason
+
+
+def test_deny_egress_pii_ssn(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    verdict = broker(
+        session, agent.id, "web_search",
+        {"query": "my ssn is 123-45-6789 please verify"}, _ctx(agent.id),
+    )
+    assert isinstance(verdict, Denied)
+    assert "egress" in verdict.reason
+
+
+def test_deny_egress_fragmented_hex(session: Session, offline_settings: object) -> None:
+    """A secret spread across short tokens (each passes the per-token/cred checks) is caught."""
+    agent = seed_defaults(session)
+    verdict = broker(
+        session, agent.id, "web_search",
+        {"query": "hash de ad be ef de ad be ef de ad be ef de ad be ef"}, _ctx(agent.id),
+    )
+    assert isinstance(verdict, Denied)
+    assert "egress" in verdict.reason
+
+
+def test_allow_egress_long_research_query(session: Session, offline_settings: object) -> None:
+    """A long word-dense research query must not trip the egress backstop (regression guard)."""
+    agent = seed_defaults(session)
+    query = (
+        "compare SAP S/4HANA Fiori catalog vs business role authorization concept best "
+        "practices for derived roles and segregation of duties 2025"
+    )
+    verdict = broker(session, agent.id, "web_search", {"query": query}, _ctx(agent.id))
+    assert isinstance(verdict, Allowed)
+
+
 def test_kb_search_not_egress_checked(session: Session, offline_settings: object) -> None:
     """A long token is fine for the local KB tool — egress applies only to outbound tools."""
     agent = seed_defaults(session)
