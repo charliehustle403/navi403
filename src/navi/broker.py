@@ -90,13 +90,35 @@ _CRED_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"eyJ[A-Za-z0-9_-]{10,}\."), "jwt"),
     (re.compile(r"[0-9a-fA-F]{32,}"), "long hex secret"),
 ]
+_PII_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # Email address. Conservative: requires a dotted TLD of 2+ alpha chars (skips bare @mentions).
+    (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "email address"),
+    # US SSN: NNN-NN-NNNN, separators (hyphen or space) REQUIRED so a bare 9-digit run is not
+    # eaten (avoids colliding with order numbers, zip+4, 3-3-4 phone numbers).
+    (re.compile(r"\b\d{3}[-\s]\d{2}[-\s]\d{4}\b"), "us ssn"),
+]
+# Fragmented-exfil heuristic: a secret split across many short tokens that each pass the
+# per-token / cred checks. Floor of 32 hexlike chars mirrors the 128-bit secret-size intuition
+# of the [0-9a-fA-F]{32,} cred pattern; the 0.5 ratio gate keeps word-dense research queries
+# (alphabetic words dominate) well clear of the deny.
+_MIN_HEXLIKE_CHARS = 32
+_HEXLIKE_RATIO = 0.5
+_HEXLIKE = re.compile(r"[0-9a-fA-F]")
+_NON_SPACE = re.compile(r"\S")
 
 
 def _egress_check(value: str) -> str | None:
     """Return a block reason if an outbound string looks like data exfiltration, else None.
 
-    Deterministic guard — the broker does not trust the model to "surface, not obey".
-    TODO(scope): add PII-shaped detection (emails/SSNs) once false-positive tuning is worth it.
+    Deterministic guard — the broker does not trust the model to "surface, not obey". Covers
+    over-length queries, long opaque tokens, credential-shaped tokens, PII-shaped tokens
+    (email / US SSN), and fragmented secret-shaped content (a secret spread across many short
+    tokens via a hexlike-density gate).
+
+    # TODO(scope): verbatim-span-from-context echo detection (long spans copied out of the
+    # model's context) is deferred — it needs the run's corpus (user text + prior tool outputs),
+    # which is not on RunContext and would require threading a context argument through both
+    # _egress_check() and broker() and every call site. Follow-up Lattice task.
     """
     if len(value) > _MAX_QUERY_LEN:
         return f"value too long ({len(value)} > {_MAX_QUERY_LEN} chars)"
@@ -106,6 +128,13 @@ def _egress_check(value: str) -> str | None:
     for pattern, label in _CRED_PATTERNS:
         if pattern.search(value):
             return f"matches credential pattern ({label})"
+    for pattern, label in _PII_PATTERNS:
+        if pattern.search(value):
+            return f"matches PII pattern ({label})"
+    hexlike = len(_HEXLIKE.findall(value))
+    total = len(_NON_SPACE.findall(value))
+    if hexlike >= _MIN_HEXLIKE_CHARS and total > 0 and hexlike / total >= _HEXLIKE_RATIO:
+        return f"high-density secret-shaped content ({hexlike}/{total} chars)"
     return None
 
 
