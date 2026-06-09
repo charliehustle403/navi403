@@ -53,6 +53,7 @@ class ToolSpec:
     egress_checked: bool
     description: str = ""
     enabled: bool = True
+    redact_output: bool = False  # scrub cred/PII-shaped spans from this tool's output (NAVI-14)
 
 
 # The registry the broker owns. Private — nothing outside this module references it.
@@ -74,6 +75,7 @@ _REGISTRY: dict[str, ToolSpec] = {
         kind="read_only",
         access_scope="web",
         egress_checked=True,  # outbound — the exfiltration backstop applies
+        redact_output=True,  # untrusted, attacker-controllable content — scrub before the model
         description="Search the public web for current information; returns title/url/snippet "
         "results.",
     ),
@@ -136,6 +138,55 @@ def _egress_check(value: str) -> str | None:
     if hexlike >= _MIN_HEXLIKE_CHARS and total > 0 and hexlike / total >= _HEXLIKE_RATIO:
         return f"high-density secret-shaped content ({hexlike}/{total} chars)"
     return None
+
+
+# --- output redaction (inbound mirror of the egress check; spec §6.2) ---------------------
+# Untrusted tool OUTPUT (web_search results) can carry an indirect prompt-injection: a planted
+# secret/PII span the model might echo back outbound. Before such output re-enters the model
+# context we scrub the cred/PII-shaped spans in place. Unlike the egress check (which denies the
+# whole call), output is redacted not denied — a fetched page legitimately containing a hex hash
+# or a footer email must not break legitimate research. Only the substitutable span detectors
+# (_CRED_PATTERNS + _PII_PATTERNS) apply; the whole-string density/length gates stay input-only.
+
+
+def _redact(value: str) -> tuple[str, list[str]]:
+    """Replace credential/PII-shaped spans with ``[REDACTED:<label>]``; return (clean, labels_hit).
+
+    Pure, deterministic, no I/O. Reuses the NAVI-6 ``_CRED_PATTERNS`` + ``_PII_PATTERNS`` (no regex
+    duplication), substituting in fixed pattern order. The placeholder is a constant string holding
+    no captured content. ``labels_hit`` carries only the non-sensitive category names that matched.
+    """
+    clean = value
+    labels: list[str] = []
+    for pattern, label in (*_CRED_PATTERNS, *_PII_PATTERNS):
+        clean, count = pattern.subn(f"[REDACTED:{label}]", clean)
+        if count:
+            labels.append(label)
+    return clean, labels
+
+
+def _redact_result(result: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """Walk a tool-result dict, redacting its string values; return a NEW dict + all labels hit.
+
+    Builds a new structure (never mutates the input): ``str`` → ``_redact``, ``dict`` → recurse,
+    ``list`` → map over items, other scalars unchanged. Covers nested ``results[]`` snippet/url
+    spans. Labels accumulate in traversal order (stable). Pure, deterministic, no I/O.
+    """
+    labels: list[str] = []
+
+    def walk(node: Any) -> Any:
+        if isinstance(node, str):
+            clean, hit = _redact(node)
+            labels.extend(hit)
+            return clean
+        if isinstance(node, dict):
+            return {k: walk(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [walk(item) for item in node]
+        return node
+
+    redacted: dict[str, Any] = walk(result)
+    return redacted, labels
 
 
 def _string_values(model: BaseModel) -> list[str]:
@@ -203,9 +254,16 @@ def broker(
         return deny("per-run budget exhausted")
 
     result = spec.fn(validated)
-    # TODO(scope): optional output redaction before returning to the model (spec §6.2).
+    # Output redaction (spec §6.2): scrub cred/PII-shaped spans from untrusted tool output before
+    # it re-enters the model context — done (NAVI-14). For redact_output=False tools this is a
+    # no-op, so behavior is byte-for-byte identical to before.
+    # TODO(scope): first-class `redacted` column on trace_events (migration) and verbatim-span echo
+    # detection on output remain deferred follow-ups.
+    redacted_labels: list[str] = []
+    if spec.redact_output:
+        result, redacted_labels = _redact_result(result)
     emit({"event_type": "broker_decision", "tool_name": tool_name, "verdict": "allowed",
-          "reason": None})
+          "reason": None, "redacted": redacted_labels})
     return Allowed(result)
 
 

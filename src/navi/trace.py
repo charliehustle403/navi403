@@ -66,13 +66,25 @@ class RunRecorder:
         )
 
     def broker_decision(self, record: dict[str, Any]) -> None:
-        """Adapter for the broker's ``tracer`` callable (spec §6.2)."""
+        """Adapter for the broker's ``tracer`` callable (spec §6.2).
+
+        When the broker redacted cred/PII spans from a tool's output (NAVI-14), the non-sensitive
+        labels are folded into ``payload_hash`` — labels only, never the raw matched content.
+        # TODO(scope): a first-class ``redacted`` column on trace_events (migration) is deferred.
+        """
         reason = record.get("reason")
+        redacted = record.get("redacted")
+        if redacted:
+            payload_hash: str | None = _hash({"redacted": redacted})
+        elif reason:
+            payload_hash = _hash(reason)
+        else:
+            payload_hash = None
         self._add(
             "broker_decision",
             tool_name=record.get("tool_name"),
             verdict=record.get("verdict"),
-            payload_hash=_hash(reason) if reason else None,
+            payload_hash=payload_hash,
         )
 
     def route_event(self, dispatched: str, decision: RouteDecision) -> None:

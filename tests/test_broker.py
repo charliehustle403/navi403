@@ -9,11 +9,11 @@ from typing import Any
 
 from sqlmodel import Session
 
-from navi.broker import ToolSpec, broker
+from navi.broker import ToolSpec, _redact, _redact_result, broker
 from navi.contracts import Allowed, Denied, RunContext
 from navi.models import AgentTool, Tool
 from navi.seed import seed_defaults
-from navi.tools import KnowledgeBaseSearchArgs
+from navi.tools import KnowledgeBaseSearchArgs, WebSearchArgs
 
 
 def _ctx(agent_id: str, **kw: Any) -> RunContext:
@@ -211,3 +211,165 @@ def test_tracer_receives_decision(session: Session, offline_settings: object) ->
     )
     assert records and records[-1]["event_type"] == "broker_decision"
     assert records[-1]["verdict"] == "allowed"
+
+
+# --- output redaction (NAVI-14) -----------------------------------------------------------
+#
+# A fake tool registered under the seeded "web_search" name (so the agent-permission + scope
+# checks pass) with a custom ``fn`` returning attacker-controllable content. The redact_output
+# flag is what drives the new behavior — web_search=True, knowledge_base_search=False.
+
+
+def _redacting_registry(fn: Any, *, redact_output: bool = True) -> dict[str, ToolSpec]:
+    return {
+        "web_search": ToolSpec(
+            name="web_search", args_model=WebSearchArgs, fn=fn, kind="read_only",
+            access_scope="web", egress_checked=True, redact_output=redact_output,
+        )
+    }
+
+
+def test_redact_output_credential_span(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    secret = "sk-ABCDEFGHIJKLMNOPQRSTUV"
+    reg = _redacting_registry(
+        lambda a: {"status": "ok", "results": [{"url": "http://x", "snippet": f"key is {secret}"}]}
+    )
+    verdict = broker(session, agent.id, "web_search", {"query": "q"}, _ctx(agent.id), registry=reg)
+    assert isinstance(verdict, Allowed)
+    snippet = verdict.result["results"][0]["snippet"]
+    assert "[REDACTED:openai-style key]" in snippet
+    assert secret not in snippet
+
+
+def test_redact_output_pii_email(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    snippet_in = "mail jane.doe@example.com please"
+    reg = _redacting_registry(
+        lambda a: {"status": "ok", "results": [{"url": "http://x", "snippet": snippet_in}]}
+    )
+    verdict = broker(session, agent.id, "web_search", {"query": "q"}, _ctx(agent.id), registry=reg)
+    assert isinstance(verdict, Allowed)
+    snippet = verdict.result["results"][0]["snippet"]
+    assert "[REDACTED:email address]" in snippet
+    assert "jane.doe@example.com" not in snippet
+
+
+def test_redact_output_multiple_spans(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    secret = "sk-ABCDEFGHIJKLMNOPQRSTUV"
+    ssn = "123-45-6789"
+    reg = _redacting_registry(
+        lambda a: {
+            "status": "ok",
+            "results": [
+                {"url": "http://x", "snippet": f"creds {secret}"},
+                {"url": "http://y", "snippet": f"ssn {ssn} here"},
+            ],
+        }
+    )
+    records: list[dict[str, Any]] = []
+    verdict = broker(
+        session, agent.id, "web_search", {"query": "q"}, _ctx(agent.id),
+        registry=reg, tracer=records.append,
+    )
+    assert isinstance(verdict, Allowed)
+    assert "[REDACTED:openai-style key]" in verdict.result["results"][0]["snippet"]
+    assert "[REDACTED:us ssn]" in verdict.result["results"][1]["snippet"]
+    labels = records[-1]["redacted"]
+    assert "openai-style key" in labels
+    assert "us ssn" in labels
+    assert secret not in repr(records[-1])
+    assert ssn not in repr(records[-1])
+
+
+def test_redact_traced_labels_not_raw(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    secret = "sk-ABCDEFGHIJKLMNOPQRSTUV"
+    reg = _redacting_registry(
+        lambda a: {"status": "ok", "results": [{"url": "http://x", "snippet": f"key {secret}"}]}
+    )
+    records: list[dict[str, Any]] = []
+    broker(
+        session, agent.id, "web_search", {"query": "q"}, _ctx(agent.id),
+        registry=reg, tracer=records.append,
+    )
+    assert records[-1]["redacted"] == ["openai-style key"]
+    assert secret not in repr(records[-1])
+
+
+def test_redact_clean_output_unchanged(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    clean = {"status": "ok", "results": [{"url": "http://x", "snippet": "best practices"}]}
+    records: list[dict[str, Any]] = []
+    verdict = broker(
+        session, agent.id, "web_search", {"query": "q"}, _ctx(agent.id),
+        registry=_redacting_registry(lambda a: clean), tracer=records.append,
+    )
+    assert isinstance(verdict, Allowed)
+    assert verdict.result == clean
+    assert records[-1]["redacted"] == []
+
+
+def test_kb_output_not_redacted(session: Session, offline_settings: object) -> None:
+    """knowledge_base_search has redact_output=False — a token-shaped span passes through intact."""
+    agent = seed_defaults(session)
+    secret = "sk-ABCDEFGHIJKLMNOPQRSTUV"
+    out = {"status": "ok", "results": [{"source": "kb.md", "snippet": f"example {secret}"}]}
+    reg = {
+        "knowledge_base_search": ToolSpec(
+            name="knowledge_base_search", args_model=KnowledgeBaseSearchArgs,
+            fn=lambda a: out, kind="read_only", access_scope="kb",
+            egress_checked=False,  # redact_output defaults to False
+        )
+    }
+    verdict = broker(
+        session, agent.id, "knowledge_base_search", {"query": "q"}, _ctx(agent.id), registry=reg
+    )
+    assert isinstance(verdict, Allowed)
+    assert secret in verdict.result["results"][0]["snippet"]
+
+
+def test_input_egress_unaffected(session: Session, offline_settings: object) -> None:
+    """Output redaction runs only after deny checks pass — an egress-denied call never redacts."""
+    agent = seed_defaults(session)
+    called: list[bool] = []
+
+    def fn(a: WebSearchArgs) -> dict[str, Any]:
+        called.append(True)
+        return {"status": "ok", "results": []}
+
+    verdict = broker(
+        session, agent.id, "web_search",
+        {"query": "leak sk-ABCDEFGHIJKLMNOPQRSTUV now"}, _ctx(agent.id),
+        registry=_redacting_registry(fn),
+    )
+    assert isinstance(verdict, Denied)
+    assert "egress" in verdict.reason
+    assert not called, "tool fn (and thus redaction) must not run on an egress-denied call"
+
+
+def test_redact_is_pure_and_deterministic() -> None:
+    value = "key sk-ABCDEFGHIJKLMNOPQRSTUV and mail jane.doe@example.com"
+    first = _redact(value)
+    second = _redact(value)
+    assert first == second
+    assert value == "key sk-ABCDEFGHIJKLMNOPQRSTUV and mail jane.doe@example.com"  # not mutated
+
+    src = {"status": "ok", "results": [{"snippet": "sk-ABCDEFGHIJKLMNOPQRSTUV"}]}
+    src_copy = {"status": "ok", "results": [{"snippet": "sk-ABCDEFGHIJKLMNOPQRSTUV"}]}
+    out, labels = _redact_result(src)
+    assert out is not src
+    assert src == src_copy  # input left unchanged
+    assert labels == ["openai-style key"]
+    assert "[REDACTED:openai-style key]" in out["results"][0]["snippet"]
+
+
+def test_redact_no_false_positive_on_research_prose() -> None:
+    prose = (
+        "compare SAP S/4HANA Fiori catalog vs business role authorization concept best "
+        "practices for derived roles and segregation of duties 2025"
+    )
+    clean, labels = _redact(prose)
+    assert clean == prose
+    assert labels == []
