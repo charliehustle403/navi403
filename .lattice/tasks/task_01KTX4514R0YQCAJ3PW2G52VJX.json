@@ -1,0 +1,32 @@
+{
+  "assigned_to": null,
+  "branch_links": [],
+  "comment_count": 2,
+  "complexity": null,
+  "created_at": "2026-06-12T05:16:22Z",
+  "created_by": "human:david",
+  "custom_fields": {},
+  "description": null,
+  "done_at": "2026-06-12T05:52:56Z",
+  "evidence_refs": [
+    {
+      "id": "ev_01KTX67A6FBB19XSAJV8NS5F97",
+      "role": "review",
+      "source_type": "comment"
+    }
+  ],
+  "id": "task_01KTX4514R0YQCAJ3PW2G52VJX",
+  "last_event_id": "ev_01KTX680MER80WSGBK81S1082K",
+  "last_status_changed_at": "2026-06-12T05:52:56Z",
+  "priority": "medium",
+  "relationships_out": [],
+  "reopened_count": 0,
+  "schema_version": 1,
+  "short_id": "NAVI-16",
+  "status": "done",
+  "tags": null,
+  "title": "Web UI backend support: GET /runs list endpoint + serve SPA static build from FastAPI",
+  "type": "task",
+  "updated_at": "2026-06-12T05:52:56Z",
+  "urgency": null
+}
