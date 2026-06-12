@@ -1,7 +1,7 @@
 {
   "assigned_to": null,
   "branch_links": [],
-  "comment_count": 2,
+  "comment_count": 3,
   "complexity": null,
   "created_at": "2026-06-12T05:16:22Z",
   "created_by": "human:david",
@@ -10,8 +10,8 @@
   "done_at": null,
   "evidence_refs": [],
   "id": "task_01KTX451BVA2QTY0FQKEPCKWAX",
-  "last_event_id": "ev_01KTX526WQVY92B4K5JXZN71K3",
-  "last_status_changed_at": "2026-06-12T05:16:22Z",
+  "last_event_id": "ev_01KTX70SC11GJTQ21K0HC3J4BH",
+  "last_status_changed_at": "2026-06-12T06:06:28Z",
   "priority": "medium",
   "relationships_out": [
     {
@@ -25,10 +25,10 @@
   "reopened_count": 0,
   "schema_version": 1,
   "short_id": "NAVI-17",
-  "status": "backlog",
+  "status": "in_progress",
   "tags": null,
   "title": "Web UI v1: two-pane workbench (chat + run inspector), dark cockpit default + light toggle",
   "type": "task",
-  "updated_at": "2026-06-12T05:32:18Z",
+  "updated_at": "2026-06-12T06:06:28Z",
   "urgency": null
 }
