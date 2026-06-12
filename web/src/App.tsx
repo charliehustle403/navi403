@@ -1,42 +1,101 @@
+import { useEffect, useRef, useState } from "react";
+
 import { BootScreen } from "@/components/BootScreen";
 import { Header } from "@/components/Header";
+import { ChatInput } from "@/components/chat/ChatInput";
+import { Message, type ChatMessage } from "@/components/chat/Message";
+import { InspectorPane } from "@/components/inspector/InspectorPane";
+import { ApiError, ask, getRun, type RunTrace } from "@/lib/api";
 
 /**
- * Two-pane workbench shell (step 1): left = conversation area (boot screen until the chat
- * lands in step 2), right = run inspector placeholder. Stacks to one column below lg.
+ * Two-pane workbench: left = conversation (boot screen until the first ask),
+ * right = run inspector showing the latest run's trace. Stacks below lg with a
+ * DIAGNOSTICS toggle for the inspector.
  */
 function App() {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [pending, setPending] = useState(false);
+  const [trace, setTrace] = useState<RunTrace | null>(null);
+  const [traceError, setTraceError] = useState<string | null>(null);
+  const [showInspector, setShowInspector] = useState(false);
+  const nextId = useRef(0);
+  const threadEnd = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    threadEnd.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, pending]);
+
+  const submit = async (text: string) => {
+    setMessages((m) => [...m, { id: nextId.current++, role: "user", text }]);
+    setPending(true);
+    try {
+      const result = await ask(text);
+      setMessages((m) => [
+        ...m,
+        { id: nextId.current++, role: "navi", text: result.answer, result },
+      ]);
+      try {
+        setTrace(await getRun(result.run_id));
+        setTraceError(null);
+      } catch (e) {
+        setTrace(null);
+        setTraceError(e instanceof ApiError && e.status === 404 ? "RUN NOT FOUND" : "TRACE UNAVAILABLE");
+      }
+    } catch (e) {
+      const detail =
+        e instanceof ApiError ? e.detail : "API unreachable — is the server running? (start.bat)";
+      setMessages((m) => [...m, { id: nextId.current++, role: "navi", text: "", error: detail }]);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const started = messages.length > 0;
+  const orbState = pending ? "active" : "idle";
+
   return (
     <div className="mx-auto flex h-dvh max-w-7xl flex-col gap-3 p-3">
-      <Header />
+      <Header showOrb={started} orbActive={pending} />
 
       <main className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1fr_minmax(320px,420px)]">
         {/* Conversation pane */}
         <section className="glass flex min-h-0 flex-col rounded-lg">
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <BootScreen />
+            {started ? (
+              <div className="space-y-3 p-4">
+                {messages.map((msg) => (
+                  <Message key={msg.id} message={msg} />
+                ))}
+                {pending && (
+                  <p className="readout animate-pulse text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
+                    processing…
+                  </p>
+                )}
+                <div ref={threadEnd} />
+              </div>
+            ) : (
+              <BootScreen orbState={orbState} />
+            )}
           </div>
-          {/* Step 2 replaces this with ChatInput wired to POST /ask. */}
-          <div className="border-t border-border p-3">
-            <input
-              type="text"
-              disabled
-              placeholder="Ask anything… (chat lands in the next step)"
-              className="readout w-full rounded-md border border-input bg-transparent px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
-            />
-          </div>
+          <ChatInput disabled={pending} onSubmit={(text) => void submit(text)} />
         </section>
 
-        {/* Run inspector pane (placeholder until step 2) */}
-        <aside className="glass hidden min-h-0 flex-col rounded-lg p-4 lg:flex">
-          <h2 className="readout text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
-            Run Inspector
-          </h2>
-          <div className="flex flex-1 items-center justify-center">
-            <p className="readout text-xs text-muted-foreground/60">AWAITING RUN DATA</p>
-          </div>
+        {/* Run inspector — always visible at lg+, toggled below */}
+        <aside
+          className={`glass min-h-0 flex-col rounded-lg lg:flex ${showInspector ? "flex" : "hidden"}`}
+        >
+          <InspectorPane trace={trace} error={traceError} />
         </aside>
       </main>
+
+      {/* Narrow-screen diagnostics toggle */}
+      <button
+        type="button"
+        onClick={() => setShowInspector((s) => !s)}
+        className="readout glass rounded-md px-3 py-1.5 text-[10px] uppercase tracking-[0.25em] text-muted-foreground lg:hidden"
+      >
+        {showInspector ? "▾ Hide diagnostics" : "▸ Diagnostics"}
+      </button>
     </div>
   );
 }
