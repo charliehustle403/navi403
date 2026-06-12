@@ -1,4 +1,9 @@
-"""SPA static mount tests (NAVI-16): mount_spa guard + API route precedence over the mount."""
+"""SPA static mount tests (NAVI-16): mount_spa guard + API route precedence over the mount.
+
+The import-time ``mount_spa(app)`` call in ``navi.api`` mounts the real ``web/dist`` when it
+exists (NAVI-17 builds it on dev machines) and no-ops otherwise. Each test forces a known
+state by unmounting first, so the suite passes with or without a local UI build.
+"""
 
 from __future__ import annotations
 
@@ -24,7 +29,8 @@ def _unmount_spa() -> None:
 
 
 def test_app_boots_and_serves_api_without_web_dist() -> None:
-    # The repo has no web/dist yet (NAVI-17): '/' is unmounted, the API still answers.
+    # Simulate the "no UI build" state (fresh clone): '/' unmounted, the API still answers.
+    _unmount_spa()
     assert _spa_route_names() == []
     client = TestClient(app)
     assert client.get("/").status_code == 404
@@ -34,6 +40,7 @@ def test_app_boots_and_serves_api_without_web_dist() -> None:
 
 
 def test_mount_spa_missing_dir_is_noop(tmp_path: Path) -> None:
+    _unmount_spa()
     assert mount_spa(app, str(tmp_path / "nope")) is False
     assert _spa_route_names() == []
 
@@ -44,6 +51,7 @@ def test_mount_spa_serves_index_and_api_takes_precedence(tmp_path: Path) -> None
     assets.mkdir()
     (assets / "app.js").write_text("console.log('navi');", encoding="utf-8")
 
+    _unmount_spa()
     try:
         assert mount_spa(app, str(tmp_path)) is True
         client = TestClient(app)
@@ -60,6 +68,6 @@ def test_mount_spa_serves_index_and_api_takes_precedence(tmp_path: Path) -> None
         assert health.status_code == 200
         assert health.json()["status"] == "ok"
     finally:
-        # The app is module-global; remove the mount so other tests see today's UI-less app.
+        # The app is module-global; remove the test mount so other tests see a known state.
         _unmount_spa()
     assert _spa_route_names() == []
