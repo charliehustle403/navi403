@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     # model_profiles + pricing config file (spec §6.1). Logic references profile names; the
     # name->model mapping and prices live in this file.
     model_profiles_path: str = "model_profiles.json"
+    # web UI static build (NAVI-17). Relative to the process cwd (repo root per start.bat).
+    web_dist_dir: str = "web/dist"
 
 
 @lru_cache

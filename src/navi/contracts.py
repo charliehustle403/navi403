@@ -89,7 +89,7 @@ class MemoryCandidate(BaseModel):
     classification: Literal["preference", "world_fact", "decision", "sensitive"]
 
 
-# --- /runs/{id} trace views (spec §6.8) ---------------------------------------------------
+# --- /runs list + /runs/{id} trace views (spec §6.8) --------------------------------------
 
 
 class TraceEventView(BaseModel):
@@ -112,4 +112,18 @@ class RunTrace(BaseModel):
     started_at: str
     ended_at: str | None
     events: list[TraceEventView] = Field(default_factory=list)
+
+
+class RunSummary(BaseModel):
+    """One row in ``GET /runs`` — the run header without its events (web UI history list)."""
+
+    run_id: str
+    agent_id: str | None
+    route: str | None
+    status: str
+    cost_usd: float
+    started_at: str  # ISO-8601; the run's creation time (no created_at column exists)
+    ended_at: str | None
+    tokens_in: int | None  # SUM over the run's model_call trace events; None if none
+    tokens_out: int | None
 

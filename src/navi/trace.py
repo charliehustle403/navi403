@@ -14,9 +14,10 @@ import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import func
 from sqlmodel import Session, col, select
 
-from navi.contracts import RouteDecision, RunTrace, TraceEventView
+from navi.contracts import RouteDecision, RunSummary, RunTrace, TraceEventView
 from navi.models import Run, TraceEvent
 
 if TYPE_CHECKING:
@@ -96,6 +97,40 @@ class RunRecorder:
 
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
+
+
+def list_runs(session: Session, limit: int = 50) -> list[RunSummary]:
+    """Recent runs, newest first, with per-run token sums (``GET /runs``, web UI history).
+
+    One LEFT-JOIN/GROUP-BY query — no N+1. ``SUM`` over no model_call events yields NULL ->
+    ``None`` ("no token data" is not "zero tokens").
+    """
+    rows = session.exec(
+        select(
+            Run,
+            func.sum(col(TraceEvent.tokens_in)),
+            func.sum(col(TraceEvent.tokens_out)),
+        )
+        .join(TraceEvent, col(TraceEvent.run_id) == col(Run.id), isouter=True)
+        .group_by(col(Run.id))
+        # Secondary id tie-break keeps ordering deterministic when timestamps collide.
+        .order_by(col(Run.started_at).desc(), col(Run.id))
+        .limit(limit)
+    ).all()
+    return [
+        RunSummary(
+            run_id=run.id,
+            agent_id=run.agent_id,
+            route=run.route,
+            status=run.status,
+            cost_usd=run.cost_usd,
+            started_at=run.started_at.isoformat(),
+            ended_at=_iso(run.ended_at),
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+        )
+        for run, tokens_in, tokens_out in rows
+    ]
 
 
 def get_run_trace(session: Session, run_id: str) -> RunTrace | None:
