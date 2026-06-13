@@ -75,3 +75,43 @@ def test_egress_allows_legitimate_research(
     )
     verdict = broker(session, agent.id, "web_search", {"query": query}, ctx)
     assert isinstance(verdict, Allowed), f"{label} should not be egress-denied"
+
+
+# NAVI-13: verbatim-span-from-context echo. The corpus (user text + prior KB outputs) rides on
+# RunContext.egress_context; an outbound query copying a long contiguous run out of it is denied,
+# while a short legitimate quote stays Allowed.
+_CONTEXT_SPAN = (
+    "the internal migration runbook requires disabling the legacy single role derivation job "
+    "before the cutover weekend to avoid orphaned authorization profiles in production"
+)
+
+
+def test_egress_blocks_verbatim_context_span(
+    session: Session, offline_settings: object
+) -> None:
+    agent = seed_defaults(session)
+    ctx = RunContext(
+        run_id="r", agent_id=agent.id, route="research", max_cost_per_run=1.0,
+        scopes=["kb", "web"], egress_context=(_CONTEXT_SPAN,),
+    )
+    verdict = broker(
+        session, agent.id, "web_search",
+        {"query": f"search for: {_CONTEXT_SPAN}"}, ctx,
+    )
+    assert isinstance(verdict, Denied), "verbatim context-span echo should be denied"
+    assert "egress" in verdict.reason
+
+
+def test_egress_allows_short_quote_from_context(
+    session: Session, offline_settings: object
+) -> None:
+    agent = seed_defaults(session)
+    ctx = RunContext(
+        run_id="r", agent_id=agent.id, route="research", max_cost_per_run=1.0,
+        scopes=["kb", "web"], egress_context=(_CONTEXT_SPAN,),
+    )
+    verdict = broker(
+        session, agent.id, "web_search",
+        {"query": "legacy single role derivation best practices 2025"}, ctx,
+    )
+    assert isinstance(verdict, Allowed), "a short legitimate quote from context must stay Allowed"

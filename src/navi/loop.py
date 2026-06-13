@@ -50,6 +50,29 @@ def _agent_and_scopes(session: Session, name: str = _DEFAULT_AGENT_NAME) -> tupl
     return agent.id, sorted(scopes)
 
 
+def _corpus_strings(result: object) -> list[str]:
+    """Walk a tool-result dict, returning all its string values (NAVI-13 egress-context corpus).
+
+    Pure helper: ``str`` collected, ``dict``/``list`` recursed, other scalars skipped. Folds a
+    knowledge_base_search result's text into the run's egress corpus so a later outbound web_search
+    query that echoes a long verbatim KB span is caught by the broker.
+    """
+    out: list[str] = []
+
+    def walk(node: object) -> None:
+        if isinstance(node, str):
+            out.append(node)
+        elif isinstance(node, dict):
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(result)
+    return out
+
+
 def _collect_evidence(result: object, evidence: list[str]) -> None:
     if not isinstance(result, dict):
         return
@@ -88,6 +111,10 @@ def run_loop(
     evidence: list[str] = []
     last_text = ""
     broker_tracer = recorder.broker_decision if recorder is not None else None
+    # NAVI-13 egress corpus: the run's own sensitive text. Seeded with the user message; grows with
+    # each Allowed knowledge_base_search output. Prior web_search outputs are deliberately excluded
+    # (external/public). Threaded onto ctx so the broker can deny verbatim-span echoes outbound.
+    corpus: list[str] = [user_text]
 
     for _ in range(_MAX_ITERATIONS):
         if ctx.cost_so_far_usd >= ctx.max_cost_per_run:
@@ -108,9 +135,14 @@ def run_loop(
         messages.append({"role": "assistant", "content": resp.content})
         tool_results: list[dict[str, Any]] = []
         for tu in resp.tool_uses:
+            # Refresh the egress corpus (user text + KB outputs so far) before brokering, so the
+            # next outbound query is checked against everything sensitive pulled this run.
+            ctx.egress_context = tuple(corpus)
             verdict = broker(session, ctx.agent_id, tu.name, tu.input, ctx, tracer=broker_tracer)
             if isinstance(verdict, Allowed):
                 _collect_evidence(verdict.result, evidence)
+                if tu.name == "knowledge_base_search":
+                    corpus.extend(_corpus_strings(verdict.result))
                 payload = json.dumps(verdict.result)
             elif isinstance(verdict, Denied):
                 payload = f"DENIED by tool broker: {verdict.reason}"  # surfaced to the model

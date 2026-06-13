@@ -28,6 +28,10 @@ class RunContext(BaseModel):
     max_cost_per_run: float = 0.0
     cost_so_far_usd: float = 0.0
     scopes: list[str] = Field(default_factory=list)
+    # NAVI-13: the run's own sensitive text (user message + prior KB tool outputs), threaded so the
+    # broker can deny outbound web_search queries that echo a long verbatim span out of context.
+    # Empty by default → the verbatim-span egress branch is a pure no-op for every existing caller.
+    egress_context: tuple[str, ...] = Field(default_factory=tuple)
 
 
 # --- Broker verdicts (spec §6.2: Allowed | Denied | ApprovalRequired) --------------------

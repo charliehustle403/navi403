@@ -108,19 +108,68 @@ _HEXLIKE_RATIO = 0.5
 _HEXLIKE = re.compile(r"[0-9a-fA-F]")
 _NON_SPACE = re.compile(r"\S")
 
+# Verbatim-span echo (NAVI-13, spec §6.2): deny an outbound query that copies a long contiguous
+# run of normalized tokens straight out of the run's own context (user text + prior KB outputs).
+# Dual gate — a span must be both long in TOKENS and long in CHARS to deny, so legitimately quoted
+# short titles/phrases stay Allowed and the NAVI-6 density gate keeps ownership of tiny-token runs.
+_VERBATIM_MIN_TOKENS: int = 16  # contiguous shared normalized tokens to deny
+_VERBATIM_MIN_CHARS: int = 80  # AND the shared run must span this many reconstructed chars
 
-def _egress_check(value: str) -> str | None:
+
+def _normalize_tokens(text: str) -> list[str]:
+    """Casefold, collapse whitespace, split into tokens. Applied identically to query and corpus."""
+    return text.casefold().split()
+
+
+def _verbatim_span(value: str, corpus: str) -> int | None:
+    """Return the token length of a long verbatim run shared by ``value`` and ``corpus``, else None.
+
+    Pure/deterministic, no I/O. Builds the set of corpus token n-grams of length
+    ``_VERBATIM_MIN_TOKENS`` (O(corpus tokens)); slides the same window over the query tokens
+    (O(query tokens)). On the first shared n-gram it extends the contiguous match as far as it goes
+    and returns its token length iff that run is ``>= _VERBATIM_MIN_TOKENS`` tokens AND its
+    reconstructed (single-space-joined) char length is ``>= _VERBATIM_MIN_CHARS``. Returns only a
+    count — never the raw span text. An empty corpus yields no n-grams ⇒ always None (pure no-op).
+    """
+    n = _VERBATIM_MIN_TOKENS
+    q = _normalize_tokens(value)
+    c = _normalize_tokens(corpus)
+    if len(q) < n or len(c) < n:
+        return None
+    corpus_ngrams: set[tuple[str, ...]] = {tuple(c[i : i + n]) for i in range(len(c) - n + 1)}
+    for i in range(len(q) - n + 1):
+        if tuple(q[i : i + n]) not in corpus_ngrams:
+            continue
+        # Shared window at q[i:]; extend the contiguous match as far as the corpus contains it.
+        for j in range(i + n, len(q) + 1):
+            window = tuple(q[j - n : j])
+            if window not in corpus_ngrams:
+                break
+        else:
+            j = len(q) + 1
+        end = j - 1  # last index (exclusive) whose trailing n-gram still matched the corpus
+        run = q[i:end]
+        if len(run) >= n and len(" ".join(run)) >= _VERBATIM_MIN_CHARS:
+            return len(run)
+    return None
+
+
+def _egress_check(value: str, corpus: str = "") -> str | None:
     """Return a block reason if an outbound string looks like data exfiltration, else None.
 
     Deterministic guard — the broker does not trust the model to "surface, not obey". Covers
     over-length queries, long opaque tokens, credential-shaped tokens, PII-shaped tokens
-    (email / US SSN), and fragmented secret-shaped content (a secret spread across many short
-    tokens via a hexlike-density gate).
+    (email / US SSN), fragmented secret-shaped content (a secret spread across many short tokens
+    via a hexlike-density gate), and — last — long verbatim spans copied out of the run's own
+    context.
 
-    # TODO(scope): verbatim-span-from-context echo detection (long spans copied out of the
-    # model's context) is deferred — it needs the run's corpus (user text + prior tool outputs),
-    # which is not on RunContext and would require threading a context argument through both
-    # _egress_check() and broker() and every call site. Follow-up Lattice task.
+    Verbatim-span echo detection is DONE (NAVI-13): an exact normalized-token n-gram match
+    (N=16 tokens / 80 chars) against ``corpus`` = the run's user text + prior knowledge_base_search
+    outputs (assembled in ``run_loop`` onto ``RunContext.egress_context``). The branch runs last and
+    no-ops when ``corpus`` is empty, so every corpus-free caller behaves exactly as before.
+    # TODO(scope): fuzzy / semantic / edit-distance matching stays deferred (exact n-gram only);
+    # prior web_search outputs are intentionally excluded from the corpus (external/public,
+    # FP-prone); a first-class `verbatim` column on trace_events is deferred (reason = count only).
     """
     if len(value) > _MAX_QUERY_LEN:
         return f"value too long ({len(value)} > {_MAX_QUERY_LEN} chars)"
@@ -137,6 +186,10 @@ def _egress_check(value: str) -> str | None:
     total = len(_NON_SPACE.findall(value))
     if hexlike >= _MIN_HEXLIKE_CHARS and total > 0 and hexlike / total >= _HEXLIKE_RATIO:
         return f"high-density secret-shaped content ({hexlike}/{total} chars)"
+    if corpus:
+        matched = _verbatim_span(value, corpus)
+        if matched is not None:
+            return f"verbatim span copied from context ({matched} tokens)"
     return None
 
 
@@ -246,8 +299,11 @@ def broker(
     if spec.access_scope not in ctx.scopes:
         return deny(f"scope {spec.access_scope!r} not permitted for this run")
     if spec.egress_checked:
+        # NAVI-13: the corpus is the run's own sensitive text (user message + prior KB outputs),
+        # carried on RunContext so broker()'s public signature stays stable. Empty ⇒ verbatim no-op.
+        corpus = "\n".join(ctx.egress_context)
         for value in _string_values(validated):
-            blocked = _egress_check(value)
+            blocked = _egress_check(value, corpus)
             if blocked:
                 return deny(f"egress blocked: {blocked}")
     if ctx.cost_so_far_usd >= ctx.max_cost_per_run:
