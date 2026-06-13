@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlmodel import Session
 
-from navi.broker import ToolSpec, _redact, _redact_result, broker
+from navi.broker import ToolSpec, _egress_check, _redact, _redact_result, broker
 from navi.contracts import Allowed, Denied, RunContext
 from navi.models import AgentTool, Tool
 from navi.seed import seed_defaults
@@ -128,6 +128,63 @@ def test_deny_budget_exhausted(session: Session, offline_settings: object) -> No
     assert "budget" in verdict.reason
 
 
+# --- per-tool rate limiting (NAVI-15) -----------------------------------------------------
+
+
+def test_deny_rate_limit_exhausted(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    # web_search already called once this run; cap is 1 → the next call is denied.
+    verdict = broker(
+        session, agent.id, "web_search", {"query": "q"},
+        _ctx(agent.id, max_calls_per_tool=1, tool_calls={"web_search": 1}),
+    )
+    assert isinstance(verdict, Denied)
+    assert "rate limit" in verdict.reason
+
+
+def test_allow_under_rate_limit(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    # One prior call, cap of 3 → still under the limit.
+    verdict = broker(
+        session, agent.id, "web_search", {"query": "q"},
+        _ctx(agent.id, max_calls_per_tool=3, tool_calls={"web_search": 1}),
+    )
+    assert isinstance(verdict, Allowed)
+
+
+def test_rate_limit_is_per_tool(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    # web_search is at its cap, but knowledge_base_search has its own (zero) count → Allowed.
+    verdict = broker(
+        session, agent.id, "knowledge_base_search", {"query": "q"},
+        _ctx(agent.id, max_calls_per_tool=1, tool_calls={"web_search": 1}),
+    )
+    assert isinstance(verdict, Allowed)
+
+
+def test_rate_limit_default_unlimited(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    # Default _ctx has max_calls_per_tool=None (feature off): a high prior count is still Allowed,
+    # so every existing caller/test is unaffected.
+    verdict = broker(
+        session, agent.id, "web_search", {"query": "q"},
+        _ctx(agent.id, tool_calls={"web_search": 99}),
+    )
+    assert isinstance(verdict, Allowed)
+
+
+def test_rate_limit_denied_keeps_counts(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    counts = {"web_search": 1}
+    verdict = broker(
+        session, agent.id, "web_search", {"query": "q"},
+        _ctx(agent.id, max_calls_per_tool=1, tool_calls=counts),
+    )
+    assert isinstance(verdict, Denied)
+    # The broker reads the counter read-only; the loop (not the broker) increments it.
+    assert counts == {"web_search": 1}
+
+
 # --- egress / exfiltration (the v1.1 backstop, §6.2 + §10) --------------------------------
 
 
@@ -189,6 +246,84 @@ def test_allow_egress_long_research_query(session: Session, offline_settings: ob
     )
     verdict = broker(session, agent.id, "web_search", {"query": query}, _ctx(agent.id))
     assert isinstance(verdict, Allowed)
+
+
+# --- egress: verbatim-span-from-context echo (NAVI-13) ------------------------------------
+#
+# A long contiguous run of normalized tokens copied straight out of the run's own context
+# (user text + prior KB outputs, carried on RunContext.egress_context) is denied. Short legit
+# quotes and unrelated queries stay Allowed; with no corpus the branch is a pure no-op.
+
+_SENSITIVE_SPAN = (
+    "the internal migration runbook requires disabling the legacy single role derivation job "
+    "before the cutover weekend to avoid orphaned authorization profiles in production"
+)
+
+
+def test_deny_egress_verbatim_span_from_context(
+    session: Session, offline_settings: object
+) -> None:
+    agent = seed_defaults(session)
+    query = f"please search the web for: {_SENSITIVE_SPAN} and tell me more"
+    records: list[dict[str, Any]] = []
+    verdict = broker(
+        session, agent.id, "web_search", {"query": query},
+        _ctx(agent.id, egress_context=(_SENSITIVE_SPAN,)), tracer=records.append,
+    )
+    assert isinstance(verdict, Denied)
+    assert "egress" in verdict.reason
+    # The raw span must never reach the trace record — only a token count is carried.
+    assert _SENSITIVE_SPAN not in repr(records[-1])
+
+
+def test_allow_egress_short_quote_from_context(
+    session: Session, offline_settings: object
+) -> None:
+    agent = seed_defaults(session)
+    # KB-style doc title quoted into a follow-up search — a few tokens, well under the 16/80 gate.
+    title = "Derived Role Design Guide"
+    verdict = broker(
+        session, agent.id, "web_search",
+        {"query": f'best practices for "{title}" in S/4HANA 2025'},
+        _ctx(agent.id, egress_context=(f"document: {title} — internal reference",)),
+    )
+    assert isinstance(verdict, Allowed)
+
+
+def test_allow_egress_unrelated_query_with_context(
+    session: Session, offline_settings: object
+) -> None:
+    agent = seed_defaults(session)
+    verdict = broker(
+        session, agent.id, "web_search",
+        {"query": "current SAP Fiori catalog versioning best practices"},
+        _ctx(agent.id, egress_context=(_SENSITIVE_SPAN,)),
+    )
+    assert isinstance(verdict, Allowed)
+
+
+def test_egress_no_corpus_behaves_as_today(session: Session, offline_settings: object) -> None:
+    # Default egress_context=() — a long natural query that was Allowed before stays Allowed; the
+    # new branch adds zero behavior when there is no corpus.
+    agent = seed_defaults(session)
+    verdict = broker(
+        session, agent.id, "web_search", {"query": _SENSITIVE_SPAN}, _ctx(agent.id)
+    )
+    assert isinstance(verdict, Allowed)
+
+
+def test_egress_check_pure_deterministic_verbatim() -> None:
+    value = f"lookup {_SENSITIVE_SPAN} online"
+    corpus = _SENSITIVE_SPAN
+    first = _egress_check(value, corpus)
+    second = _egress_check(value, corpus)
+    assert first == second
+    assert first is not None and "verbatim" in first
+    # Inputs are not mutated.
+    assert value == f"lookup {_SENSITIVE_SPAN} online"
+    assert corpus == _SENSITIVE_SPAN
+    # Empty corpus is a no-op on the same value.
+    assert _egress_check(value, "") is None
 
 
 def test_kb_search_not_egress_checked(session: Session, offline_settings: object) -> None:

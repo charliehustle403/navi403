@@ -37,9 +37,13 @@ def get_model_client() -> Completer:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    """Liveness + DB connectivity. Always 200; ``db`` reflects the probe result."""
-    return {"status": "ok", "db": "ok" if check_db() else "error"}
+def health(session: Session = Depends(get_session)) -> dict[str, str]:
+    """Liveness + DB connectivity. Always 200; ``db`` reflects the probe result.
+
+    The DB probe runs on the injected session so tests can override it with an in-memory DB
+    (NAVI-21) — no live Postgres required for the suite.
+    """
+    return {"status": "ok", "db": "ok" if check_db(session) else "error"}
 
 
 @app.post("/ask")

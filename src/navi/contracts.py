@@ -28,6 +28,16 @@ class RunContext(BaseModel):
     max_cost_per_run: float = 0.0
     cost_so_far_usd: float = 0.0
     scopes: list[str] = Field(default_factory=list)
+    # NAVI-13: the run's own sensitive text (user message + prior KB tool outputs), threaded so the
+    # broker can deny outbound web_search queries that echo a long verbatim span out of context.
+    # Empty by default → the verbatim-span egress branch is a pure no-op for every existing caller.
+    egress_context: tuple[str, ...] = Field(default_factory=tuple)
+    # NAVI-15: per-run, per-tool call cap (DoS/cost backstop atop the cost budget). None = no limit
+    # (default off → every existing caller/test is unaffected, unlike the fail-closed cost budget).
+    # ``tool_calls`` accumulates the count of executed (Allowed) calls per tool this run; the broker
+    # reads it for the rate-limit check, the loop increments it after an Allowed verdict.
+    max_calls_per_tool: int | None = None
+    tool_calls: dict[str, int] = Field(default_factory=dict)
 
 
 # --- Broker verdicts (spec §6.2: Allowed | Denied | ApprovalRequired) --------------------
