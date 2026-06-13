@@ -12,10 +12,13 @@ from navi.loop import handle_request, run_loop
 from navi.seed import seed_defaults
 
 
-def _ctx(agent_id: str, *, max_cost: float = 0.5) -> RunContext:
+def _ctx(
+    agent_id: str, *, max_cost: float = 0.5, max_calls_per_tool: int | None = None
+) -> RunContext:
     return RunContext(
         run_id="run-1", agent_id=agent_id, route="answer_inline",
         max_cost_per_run=max_cost, scopes=["kb", "web"],
+        max_calls_per_tool=max_calls_per_tool,
     )
 
 
@@ -55,6 +58,24 @@ def test_loop_surfaces_denied_tool_to_model(session: Session, offline_settings: 
     assert not result.truncated
     second_call_messages = json.dumps(model.calls[1][1])
     assert "DENIED" in second_call_messages  # the broker's refusal is fed back to the model
+
+
+def test_loop_rate_limit_denies_second_call(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    # Two web_search calls under a per-tool cap of 1: the first executes (offline → "unavailable"
+    # result, counted), the second is rate-limit denied and surfaced to the model (stop-and-report).
+    model = FakeModel([
+        tool_use_response("web_search", {"query": "sap sod best practices"}, cost=0.01, tu_id="t1"),
+        tool_use_response("web_search", {"query": "more sap sod"}, cost=0.01, tu_id="t2"),
+        text_response("First search done; the second was rate-limited.", cost=0.01),
+    ])
+    ctx = _ctx(agent.id, max_calls_per_tool=1)
+    result = run_loop(model, session, ctx, "sys", "daily_driver", "q")
+    assert not result.truncated
+    assert ctx.tool_calls.get("web_search") == 1  # only the executed call was counted
+    # The second loop turn feeds the broker's rate-limit refusal back to the model.
+    third_call_messages = json.dumps(model.calls[-1][1])
+    assert "rate limit" in third_call_messages
 
 
 def test_handle_request_clarify_skips_loop(session: Session, offline_settings: object) -> None:

@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 _MAX_ITERATIONS = 8  # safety backstop on the tool loop
 _DEFAULT_AGENT_NAME = "navi"
+# NAVI-15: per-run, per-tool call cap (DoS/cost backstop). Used when a model profile omits
+# ``max_calls_per_tool``; profiles may override in model_profiles.json (config, not code).
+_DEFAULT_MAX_CALLS_PER_TOOL = 5
 
 # dispatched route -> (system prompt, model profile)
 _DISPATCH: dict[str, tuple[str, str]] = {
@@ -143,6 +146,8 @@ def run_loop(
                 _collect_evidence(verdict.result, evidence)
                 if tu.name == "knowledge_base_search":
                     corpus.extend(_corpus_strings(verdict.result))
+                # NAVI-15: count executed calls per tool so the broker can rate-limit the next one.
+                ctx.tool_calls[tu.name] = ctx.tool_calls.get(tu.name, 0) + 1
                 payload = json.dumps(verdict.result)
             elif isinstance(verdict, Denied):
                 payload = f"DENIED by tool broker: {verdict.reason}"  # surfaced to the model
@@ -201,6 +206,8 @@ def handle_request(text: str, *, model: Completer, session: Session) -> Structur
             max_cost_per_run=float(prof["max_cost_per_run"]),  # real budget — not the 0.0 default
             cost_so_far_usd=recorder.cost,  # carry the classifier cost into the budget + total
             scopes=scopes,
+            # NAVI-15: per-tool call cap from the profile (config), with a safe default fallback.
+            max_calls_per_tool=int(prof.get("max_calls_per_tool", _DEFAULT_MAX_CALLS_PER_TOOL)),
         )
         result = run_loop(model, session, ctx, system, profile, text, recorder)
         close_run(session, run, status="truncated" if result.truncated else "ok",

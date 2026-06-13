@@ -306,6 +306,13 @@ def broker(
             blocked = _egress_check(value, corpus)
             if blocked:
                 return deny(f"egress blocked: {blocked}")
+    # NAVI-15: per-run, per-tool call cap (DoS/cost backstop). Read-only here — the loop increments
+    # ctx.tool_calls on Allowed. None ⇒ feature off. Placed after the security checks so a malicious
+    # call is denied for the security reason, not masked as a rate limit. ``>=`` counts executed
+    # calls: cap=2 lets calls #1/#2 through (counts 0,1) and denies #3 (count 2).
+    cap = ctx.max_calls_per_tool
+    if cap is not None and ctx.tool_calls.get(tool_name, 0) >= cap:
+        return deny(f"tool call rate limit exhausted ({tool_name!r}: {cap} per run)")
     if ctx.cost_so_far_usd >= ctx.max_cost_per_run:
         return deny("per-run budget exhausted")
 

@@ -128,6 +128,63 @@ def test_deny_budget_exhausted(session: Session, offline_settings: object) -> No
     assert "budget" in verdict.reason
 
 
+# --- per-tool rate limiting (NAVI-15) -----------------------------------------------------
+
+
+def test_deny_rate_limit_exhausted(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    # web_search already called once this run; cap is 1 → the next call is denied.
+    verdict = broker(
+        session, agent.id, "web_search", {"query": "q"},
+        _ctx(agent.id, max_calls_per_tool=1, tool_calls={"web_search": 1}),
+    )
+    assert isinstance(verdict, Denied)
+    assert "rate limit" in verdict.reason
+
+
+def test_allow_under_rate_limit(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    # One prior call, cap of 3 → still under the limit.
+    verdict = broker(
+        session, agent.id, "web_search", {"query": "q"},
+        _ctx(agent.id, max_calls_per_tool=3, tool_calls={"web_search": 1}),
+    )
+    assert isinstance(verdict, Allowed)
+
+
+def test_rate_limit_is_per_tool(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    # web_search is at its cap, but knowledge_base_search has its own (zero) count → Allowed.
+    verdict = broker(
+        session, agent.id, "knowledge_base_search", {"query": "q"},
+        _ctx(agent.id, max_calls_per_tool=1, tool_calls={"web_search": 1}),
+    )
+    assert isinstance(verdict, Allowed)
+
+
+def test_rate_limit_default_unlimited(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    # Default _ctx has max_calls_per_tool=None (feature off): a high prior count is still Allowed,
+    # so every existing caller/test is unaffected.
+    verdict = broker(
+        session, agent.id, "web_search", {"query": "q"},
+        _ctx(agent.id, tool_calls={"web_search": 99}),
+    )
+    assert isinstance(verdict, Allowed)
+
+
+def test_rate_limit_denied_keeps_counts(session: Session, offline_settings: object) -> None:
+    agent = seed_defaults(session)
+    counts = {"web_search": 1}
+    verdict = broker(
+        session, agent.id, "web_search", {"query": "q"},
+        _ctx(agent.id, max_calls_per_tool=1, tool_calls=counts),
+    )
+    assert isinstance(verdict, Denied)
+    # The broker reads the counter read-only; the loop (not the broker) increments it.
+    assert counts == {"web_search": 1}
+
+
 # --- egress / exfiltration (the v1.1 backstop, §6.2 + §10) --------------------------------
 
 
