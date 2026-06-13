@@ -14,9 +14,10 @@ import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import func
 from sqlmodel import Session, col, select
 
-from navi.contracts import RouteDecision, RunTrace, TraceEventView
+from navi.contracts import RouteDecision, RunSummary, RunTrace, TraceEventView
 from navi.models import Run, TraceEvent
 
 if TYPE_CHECKING:
@@ -66,13 +67,25 @@ class RunRecorder:
         )
 
     def broker_decision(self, record: dict[str, Any]) -> None:
-        """Adapter for the broker's ``tracer`` callable (spec §6.2)."""
+        """Adapter for the broker's ``tracer`` callable (spec §6.2).
+
+        When the broker redacted cred/PII spans from a tool's output (NAVI-14), the non-sensitive
+        labels are folded into ``payload_hash`` — labels only, never the raw matched content.
+        # TODO(scope): a first-class ``redacted`` column on trace_events (migration) is deferred.
+        """
         reason = record.get("reason")
+        redacted = record.get("redacted")
+        if redacted:
+            payload_hash: str | None = _hash({"redacted": redacted})
+        elif reason:
+            payload_hash = _hash(reason)
+        else:
+            payload_hash = None
         self._add(
             "broker_decision",
             tool_name=record.get("tool_name"),
             verdict=record.get("verdict"),
-            payload_hash=_hash(reason) if reason else None,
+            payload_hash=payload_hash,
         )
 
     def route_event(self, dispatched: str, decision: RouteDecision) -> None:
@@ -84,6 +97,40 @@ class RunRecorder:
 
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
+
+
+def list_runs(session: Session, limit: int = 50) -> list[RunSummary]:
+    """Recent runs, newest first, with per-run token sums (``GET /runs``, web UI history).
+
+    One LEFT-JOIN/GROUP-BY query — no N+1. ``SUM`` over no model_call events yields NULL ->
+    ``None`` ("no token data" is not "zero tokens").
+    """
+    rows = session.exec(
+        select(
+            Run,
+            func.sum(col(TraceEvent.tokens_in)),
+            func.sum(col(TraceEvent.tokens_out)),
+        )
+        .join(TraceEvent, col(TraceEvent.run_id) == col(Run.id), isouter=True)
+        .group_by(col(Run.id))
+        # Secondary id tie-break keeps ordering deterministic when timestamps collide.
+        .order_by(col(Run.started_at).desc(), col(Run.id))
+        .limit(limit)
+    ).all()
+    return [
+        RunSummary(
+            run_id=run.id,
+            agent_id=run.agent_id,
+            route=run.route,
+            status=run.status,
+            cost_usd=run.cost_usd,
+            started_at=run.started_at.isoformat(),
+            ended_at=_iso(run.ended_at),
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+        )
+        for run, tokens_in, tokens_out in rows
+    ]
 
 
 def get_run_trace(session: Session, run_id: str) -> RunTrace | None:

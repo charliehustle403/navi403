@@ -1,0 +1,32 @@
+{
+  "assigned_to": null,
+  "branch_links": [],
+  "comment_count": 2,
+  "complexity": null,
+  "created_at": "2026-06-09T20:16:09Z",
+  "created_by": "agent:claude-opus-4",
+  "custom_fields": {},
+  "description": null,
+  "done_at": "2026-06-09T21:06:08Z",
+  "evidence_refs": [
+    {
+      "id": "ev_01KTQ39H3SRK31QJYQTQ7MDAW7",
+      "role": "review",
+      "source_type": "comment"
+    }
+  ],
+  "id": "task_01KTQ0EE1MNEN1N03177WHGK07",
+  "last_event_id": "ev_01KTQ39YV2Z3TBDRZ17W35A934",
+  "last_status_changed_at": "2026-06-09T21:06:08Z",
+  "priority": "medium",
+  "relationships_out": [],
+  "reopened_count": 0,
+  "schema_version": 1,
+  "short_id": "NAVI-14",
+  "status": "done",
+  "tags": null,
+  "title": "Broker: optional output redaction before returning tool results to the model",
+  "type": "task",
+  "updated_at": "2026-06-09T21:06:08Z",
+  "urgency": null
+}

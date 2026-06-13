@@ -47,6 +47,9 @@ extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
 [tool.mypy]
 python_version = "3.12"
 files = ["src"]
+# Auto-generated Alembic migrations are schema-op artifacts, not hand-maintained typed logic.
+# Exclude them so `mypy .` stays clean (the default `files = ["src"]` run already skips them).
+exclude = ["^migrations/"]
 ignore_missing_imports = true
 warn_unused_ignores = false
 warn_redundant_casts = true
